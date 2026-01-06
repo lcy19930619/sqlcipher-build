@@ -150,8 +150,10 @@ jobs:
             export PKG_CONFIG_PATH="$OPENSSL_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
             export CPPFLAGS="-I$OPENSSL_PREFIX/include $CPPFLAGS"
             export LDFLAGS="-L$OPENSSL_PREFIX/lib $LDFLAGS"
+            TCL_OPT="--disable-tcl"
           else
             BUILD_TRIPLE=$(gcc -dumpmachine)
+            TCL_OPT=""
           fi
 
           if [[ "$HOST" == "aarch64-linux-gnu" ]]; then
@@ -169,7 +171,7 @@ jobs:
             --enable-tempstore=yes \
             --enable-static=yes \
             --disable-shared \
-            --disable-tcl \        
+            ${TCL_OPT:+$TCL_OPT} \
             --with-crypto-lib=openssl \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
             CPPFLAGS="$CPPFLAGS" \
@@ -204,15 +206,18 @@ jobs:
           export AR=${HOST}-ar
           export RANLIB=${HOST}-ranlib
           PKG_CONFIG_PATH="/mingw${{ matrix.arch == 'x64' && '64' || '' }}/lib/pkgconfig"
+          TCL_OPT=""
           ./configure \
             --host="${HOST}" \
             --prefix="${PREFIX}" \
             --enable-tempstore=yes \
             --enable-static=yes \
             --disable-shared \
-            --disable-tcl \
+            ${TCL_OPT:+$TCL_OPT} \
             --with-crypto-lib=openssl \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
+            CPPFLAGS="$CPPFLAGS" \
+            LDFLAGS="$LDFLAGS" \
             LIBS="$(PKG_CONFIG_PATH=$PKG_CONFIG_PATH pkg-config --libs openssl)"
           make -j$(nproc || 2)
           make install
