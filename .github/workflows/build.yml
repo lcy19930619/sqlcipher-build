@@ -184,7 +184,14 @@ jobs:
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           make install
 
-      # ---------- Regenerate configure (Windows) ----------
+      # ---------- Windows-specific steps ----------
+      - name: Normalize line endings (Windows)
+        if: startsWith(matrix.os, 'windows')
+        shell: msys2 {0}
+        working-directory: deps/sqlcipher
+        run: |
+          find . -type f \( -name 'VERSION' -o -name 'configure.ac' -o -name 'configure' -o -name 'sqlite3.h' -o -name 'Makefile.am' -o -name 'Makefile.in' \) -exec sed -i 's/\r$//' {} +
+
       - name: Regenerate configure (Windows)
         if: startsWith(matrix.os, 'windows')
         shell: msys2 {0}
@@ -193,7 +200,6 @@ jobs:
           set -e
           autoreconf -fiv
 
-      # ---------- Configure & Build on Windows (MSYS2 mingw) ----------
       - name: Configure & Build (Windows mingw)
         if: startsWith(matrix.os, 'windows')
         shell: msys2 {0}
@@ -203,6 +209,7 @@ jobs:
           HOST: ${{ env.HOST }}
         run: |
           set -e
+          export CONFIG_SITE=/dev/null
           export CC=${HOST}-gcc
           export AR=${HOST}-ar
           export RANLIB=${HOST}-ranlib
