@@ -24,7 +24,7 @@ jobs:
             host: x86_64-apple-darwin
           - os: macos-14
             arch: arm64
-            host: arm64-apple-darwin
+            host: aarch64-apple-darwin   # 修正：使用 aarch64，避免 arm64-apple-* 被 config.sub 拒绝
           # Windows (MSYS2 mingw)
           - os: windows-latest
             arch: x64
@@ -116,10 +116,10 @@ jobs:
               git clone --depth=1 --branch=openssl-3.2.1 https://github.com/openssl/openssl.git openssl-src
             fi
             cd openssl-src
-            BUILD_TRIPLE=$(gcc -dumpmachine)
-            # 若 config.sub 识别问题，可改用 uname 得到的简化三元组
             if [[ "$OSTYPE" == darwin* ]]; then
-              BUILD_TRIPLE="$(uname -m)-apple-darwin"
+              BUILD_TRIPLE="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
+            else
+              BUILD_TRIPLE=$(gcc -dumpmachine)
             fi
             ./Configure no-shared --prefix="${PREFIX}/openssl" ${BUILD_TRIPLE}
             make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
@@ -139,7 +139,7 @@ jobs:
         shell: bash
         run: |
           if [[ "$OSTYPE" == darwin* ]]; then
-            BUILD_TRIPLE="$(uname -m)-apple-darwin"
+            BUILD_TRIPLE="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
           else
             BUILD_TRIPLE=$(gcc -dumpmachine)
           fi
