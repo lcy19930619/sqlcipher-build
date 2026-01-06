@@ -40,14 +40,16 @@ export CC="${CC:-gcc}"
 if [ -n "$OPENSSL_PATH" ]; then
     echo "Using OpenSSL from: ${OPENSSL_PATH}"
     export CFLAGS="${CFLAGS} -I${OPENSSL_PATH}/include"
-    export LDFLAGS="${LDFLAGS} -L${OPENSSL_PATH}/lib -lcrypto"
     
-    # Handle different library directory names (lib, lib64, lib/x86_64-linux-gnu, etc.)
+    # Determine the correct library path
+    LIB_PATH="${OPENSSL_PATH}/lib"
     if [ -d "${OPENSSL_PATH}/lib/x86_64-linux-gnu" ]; then
-        export LDFLAGS="${LDFLAGS} -L${OPENSSL_PATH}/lib/x86_64-linux-gnu"
+        LIB_PATH="${OPENSSL_PATH}/lib/x86_64-linux-gnu"
     elif [ -d "${OPENSSL_PATH}/lib64" ]; then
-        export LDFLAGS="${LDFLAGS} -L${OPENSSL_PATH}/lib64"
+        LIB_PATH="${OPENSSL_PATH}/lib64"
     fi
+    
+    export LDFLAGS="${LDFLAGS} -L${LIB_PATH} -lcrypto"
     
     # Set PKG_CONFIG_PATH if pkgconfig exists
     if [ -d "${OPENSSL_PATH}/lib/pkgconfig" ]; then

@@ -49,7 +49,7 @@ export CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL"
 if [ -n "$OPENSSL_PATH" ]; then
     echo "Using OpenSSL from: ${OPENSSL_PATH}"
     export CFLAGS="${CFLAGS} -I${OPENSSL_PATH}/include"
-    export LDFLAGS="-L${OPENSSL_PATH}/lib -lcrypto"
+    export LDFLAGS="${LDFLAGS} -L${OPENSSL_PATH}/lib -lcrypto"
     
     # Set PKG_CONFIG_PATH if pkgconfig exists
     if [ -d "${OPENSSL_PATH}/lib/pkgconfig" ]; then
@@ -57,7 +57,7 @@ if [ -n "$OPENSSL_PATH" ]; then
     fi
 else
     echo "Warning: OpenSSL not found in standard MSYS2/MinGW locations, trying system defaults"
-    export LDFLAGS="-lcrypto"
+    export LDFLAGS="${LDFLAGS} -lcrypto"
 fi
 
 if [ "$ARCH" = "x86" ]; then
