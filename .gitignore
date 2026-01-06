@@ -1,0 +1,26 @@
+# Build directories
+build/
+sqlcipher-src/
+*. tar.gz
+*.zip
+
+# Object files
+*.o
+*.obj
+*.lo
+*.la
+
+# Libraries
+*.lib
+*.a
+*. so
+*.dylib
+
+# Executables
+*.exe
+*.out
+
+# Temporary files
+*.log
+*.tmp
+. DS_Store
