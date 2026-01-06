@@ -83,6 +83,10 @@ jobs:
           msystem: ${{ matrix.msys-env }}
           install: >-
             git
+            autoconf
+            automake
+            libtool
+            make
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-toolchain
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-openssl
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-pkg-config
@@ -180,18 +184,14 @@ jobs:
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           make install
 
-      # ---------- Bootstrap OpenSSL check (Windows) ----------
-      - name: Check OpenSSL (Windows)
+      # ---------- Regenerate configure (Windows) ----------
+      - name: Regenerate configure (Windows)
         if: startsWith(matrix.os, 'windows')
         shell: msys2 {0}
-        env:
-          PREFIX: ${{ env.PREFIX }}
+        working-directory: deps/sqlcipher
         run: |
           set -e
-          if ! pkg-config --exists openssl; then
-            echo "OpenSSL not found in MSYS2 environment. Ensure mingw openssl is installed."
-            exit 1
-          fi
+          autoreconf -fiv
 
       # ---------- Configure & Build on Windows (MSYS2 mingw) ----------
       - name: Configure & Build (Windows mingw)
@@ -202,19 +202,23 @@ jobs:
           PREFIX: ${{ env.PREFIX }}
           HOST: ${{ env.HOST }}
         run: |
+          set -e
           export CC=${HOST}-gcc
           export AR=${HOST}-ar
           export RANLIB=${HOST}-ranlib
           PKG_CONFIG_PATH="/mingw${{ matrix.arch == 'x64' && '64' || '' }}/lib/pkgconfig"
           TCL_OPT=""
-          ./configure \
-            --host="${HOST}" \
-            --prefix="${PREFIX}" \
-            --enable-tempstore=yes \
-            --enable-static=yes \
-            --disable-shared \
-            ${TCL_OPT:+$TCL_OPT} \
-            --with-crypto-lib=openssl \
+          cfg_opts=(
+            --host="${HOST}"
+            --prefix="${PREFIX}"
+            --enable-tempstore=yes
+            --enable-static=yes
+            --disable-shared
+            --with-crypto-lib=openssl
+          )
+          if [[ -n "$TCL_OPT" ]]; then cfg_opts+=("$TCL_OPT"); fi
+
+          ./configure "${cfg_opts[@]}" \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
             CPPFLAGS="$CPPFLAGS" \
             LDFLAGS="$LDFLAGS" \
