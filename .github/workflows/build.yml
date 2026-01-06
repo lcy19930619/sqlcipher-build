@@ -184,7 +184,7 @@ jobs:
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           make install
 
-      # ---------- Windows-specific steps ----------
+      # ---------- Windows-specific steps (only Windows modified) ----------
       - name: Normalize line endings (Windows)
         if: startsWith(matrix.os, 'windows')
         shell: msys2 {0}
@@ -212,12 +212,12 @@ jobs:
           export CONFIG_SITE=/dev/null
           MINGW_PREFIX="/mingw${{ matrix.arch == 'x64' && '64' || '32' }}"
           export PATH="${MINGW_PREFIX}/bin:$PATH"
-          export CC=${HOST}-gcc
-          export AR=${HOST}-ar
-          export RANLIB=${HOST}-ranlib
-          export STRIP=${HOST}-strip
+          export CC=${MINGW_PREFIX}/bin/${HOST}-gcc
+          export AR=${MINGW_PREFIX}/bin/${HOST}-ar
+          export RANLIB=${MINGW_PREFIX}/bin/${HOST}-ranlib
+          export STRIP=${MINGW_PREFIX}/bin/${HOST}-strip
           PKG_CONFIG_PATH="${MINGW_PREFIX}/lib/pkgconfig"
-          TCL_OPT=""
+          TCL_OPT="--disable-tcl"
           cfg_opts=(
             --host="${HOST}"
             --prefix="${PREFIX}"
@@ -225,8 +225,8 @@ jobs:
             --enable-static=yes
             --disable-shared
             --with-crypto-lib=openssl
+            $TCL_OPT
           )
-          if [[ -n "$TCL_OPT" ]]; then cfg_opts+=("$TCL_OPT"); fi
 
           ./configure "${cfg_opts[@]}" \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
