@@ -18,13 +18,13 @@ jobs:
           - os: ubuntu-22.04
             arch: arm64
             host: aarch64-linux-gnu
-          # macOS
-          - os: macos-13
+          # macOS 15
+          - os: macos-15-intel
             arch: amd64
             host: x86_64-apple-darwin
-          - os: macos-14
+          - os: macos-15
             arch: arm64
-            host: aarch64-apple-darwin   # use aarch64 to satisfy config.sub
+            host: aarch64-apple-darwin
           # Windows (MSYS2 mingw)
           - os: windows-latest
             arch: x64
