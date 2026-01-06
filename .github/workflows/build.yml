@@ -4,270 +4,169 @@ on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
-    tags: [ "*" ]
+
+env:
+  OPENSSL_VERSION: 3.2.1
 
 jobs:
-  # ========== Linux (manylinux2014 glibc 2.17) ==========
-  linux:
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [ x86_64, aarch64 ]
-    runs-on: ubuntu-22.04
-    container:
-      image: quay.io/pypa/manylinux2014_${{ matrix.arch }}:latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install deps (manylinux)
-        run: |
-          yum -y install git make autoconf automake libtool tcl pkgconfig
-          # 工具链在镜像内已有（gcc / cross for the arch itself）
-
-      - name: Build OpenSSL (static)
-        run: |
-          set -e
-          mkdir -p deps && cd deps
-          if [ ! -d openssl-src ]; then
-            git clone --depth=1 --branch=openssl-3.2.1 https://github.com/openssl/openssl.git openssl-src
-          fi
-          cd openssl-src
-          ./Configure no-shared no-dso no-asm \
-            --prefix=$PWD/../openssl-install \
-            linux-${{ matrix.arch == 'x86_64' && 'x86_64' || 'aarch64' }}
-          make -j$(nproc)
-          make install_sw
-
-      - name: Fetch SQLCipher
-        run: |
-          mkdir -p deps && cd deps
-          if [ ! -d sqlcipher ]; then
-            git clone https://github.com/sqlcipher/sqlcipher.git
-          fi
-          cd sqlcipher
-          git checkout v4.5.6
-
-      - name: Configure & Build SQLCipher (static)
-        working-directory: deps/sqlcipher
-        env:
-          OPENSSL_PREFIX: ${{ github.workspace }}/deps/openssl-install
-          PREFIX: ${{ github.workspace }}/out/linux-${{ matrix.arch }}
-        run: |
-          set -e
-          export PKG_CONFIG_PATH="$OPENSSL_PREFIX/lib/pkgconfig"
-          export CPPFLAGS="-I$OPENSSL_PREFIX/include"
-          export LDFLAGS="-L$OPENSSL_PREFIX/lib"
-          ./configure \
-            --build=$(./config.guess) \
-            --host=${{ matrix.arch }}-linux-gnu \
-            --prefix="$PREFIX" \
-            --enable-tempstore=yes \
-            --enable-static=yes \
-            --disable-shared \
-            --disable-tcl \
-            --with-crypto-lib=openssl \
-            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2"
-          make -j$(nproc)
-          make install
-          tar czf "$PREFIX/sqlcipher-linux-${{ matrix.arch }}.tar.gz" -C "$PREFIX" .
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlcipher-linux-${{ matrix.arch }}
-          path: out/linux-${{ matrix.arch }}/sqlcipher-linux-${{ matrix.arch }}.tar.gz
-
-  # ========== macOS (deploy target 10.15, static OpenSSL) ==========
-  macos:
+  build:
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Linux
+          - os: ubuntu-22.04
+            arch: amd64
+            host: x86_64-linux-gnu
+          - os: ubuntu-22.04
+            arch: arm64
+            host: aarch64-linux-gnu
+
+          # macOS
           - os: macos-15-intel
-            arch: x86_64
+            arch: amd64
             host: x86_64-apple-darwin
           - os: macos-15
             arch: arm64
             host: aarch64-apple-darwin
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Install deps
-        run: |
-          brew update
-          brew install openssl@3 tcl-tk pkg-config
-          echo "OPENSSL_PREFIX=$(brew --prefix openssl@3)" >> $GITHUB_ENV
-          echo "MACOSX_DEPLOYMENT_TARGET=10.15" >> $GITHUB_ENV
-
-      - name: Build OpenSSL (static)
-        run: |
-          set -e
-          mkdir -p deps && cd deps
-          if [ ! -d openssl-src ]; then
-            git clone --depth=1 --branch=openssl-3.2.1 https://github.com/openssl/openssl.git openssl-src
-          fi
-          cd openssl-src
-          ARCH=${{ matrix.arch }}
-          TARGET="${ARCH}-apple-darwin"
-          ./Configure no-shared darwin64-${ARCH}-cc \
-            --prefix=$PWD/../openssl-install \
-            -mmacosx-version-min=10.15
-          make -j$(sysctl -n hw.ncpu)
-          make install_sw
-
-      - name: Fetch SQLCipher
-        run: |
-          mkdir -p deps && cd deps
-          if [ ! -d sqlcipher ]; then
-            git clone https://github.com/sqlcipher/sqlcipher.git
-          fi
-          cd sqlcipher
-          git checkout v4.5.6
-
-      - name: Configure & Build SQLCipher (static)
-        working-directory: deps/sqlcipher
-        env:
-          OPENSSL_PREFIX: ${{ github.workspace }}/deps/openssl-install
-          PREFIX: ${{ github.workspace }}/out/macos-${{ matrix.arch }}
-          MACOSX_DEPLOYMENT_TARGET: 10.15
-        run: |
-          set -e
-          export PKG_CONFIG_PATH="$OPENSSL_PREFIX/lib/pkgconfig"
-          export CPPFLAGS="-I$OPENSSL_PREFIX/include -mmacosx-version-min=10.15"
-          export LDFLAGS="-L$OPENSSL_PREFIX/lib -mmacosx-version-min=10.15"
-          ./configure \
-            --build=$(./config.guess) \
-            --host=${{ matrix.host }} \
-            --prefix="$PREFIX" \
-            --enable-tempstore=yes \
-            --enable-static=yes \
-            --disable-shared \
-            --disable-tcl \
-            --with-crypto-lib=openssl \
-            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2 -mmacosx-version-min=10.15"
-          make -j$(sysctl -n hw.ncpu)
-          make install
-          tar czf "$PREFIX/sqlcipher-macos-${{ matrix.arch }}.tar.gz" -C "$PREFIX" .
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlcipher-macos-${{ matrix.arch }}
-          path: out/macos-${{ matrix.arch }}/sqlcipher-macos-${{ matrix.arch }}.tar.gz
-
-  # ========== Windows (MSYS2 mingw, static OpenSSL) ==========
-  windows:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
+          # Windows
+          - os: windows-latest
+            arch: x64
             msys-env: mingw64
             host: x86_64-w64-mingw32
-          - arch: x86
+          - os: windows-latest
+            arch: x86
             msys-env: mingw32
             host: i686-w64-mingw32
-    runs-on: windows-latest
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
 
+      # ---------- Linux deps ----------
+      - name: Install deps (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config tcl git \
+            crossbuild-essential-arm64 libc6-dev-arm64-cross \
+            qemu-user-static
+
+      # ---------- macOS deps ----------
+      - name: Install deps (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          brew update
+          brew install tcl-tk pkg-config
+
+      # ---------- Windows deps ----------
       - name: Set up MSYS2
+        if: startsWith(matrix.os, 'windows')
         uses: msys2/setup-msys2@v2
         with:
           update: true
           msystem: ${{ matrix.msys-env }}
           install: >-
-            git
-            autoconf
-            automake
-            libtool
-            make
+            git autoconf automake libtool make
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-toolchain
-            mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-binutils
-            mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-openssl
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-pkg-config
-            mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-tcl
 
       - name: Prepare env
-        shell: msys2 {0}
+        shell: bash
         run: |
+          echo "PREFIX=$PWD/out/${{ matrix.os }}-${{ matrix.arch }}" >> $GITHUB_ENV
           echo "HOST=${{ matrix.host }}" >> $GITHUB_ENV
-          echo "PREFIX=$PWD/out/windows-${{ matrix.arch }}" >> $GITHUB_ENV
+          mkdir -p "$PREFIX"
 
+      # ---------- Fetch sources ----------
       - name: Fetch SQLCipher
-        shell: msys2 {0}
+        shell: bash
         run: |
-          mkdir -p deps && cd deps
-          if [ ! -d sqlcipher ]; then
-            git clone https://github.com/sqlcipher/sqlcipher.git
-          fi
+          mkdir -p deps
+          cd deps
+          git clone https://github.com/sqlcipher/sqlcipher.git
           cd sqlcipher
           git checkout v4.5.6
 
-      - name: Normalize line endings
-        shell: msys2 {0}
-        working-directory: deps/sqlcipher
+      # ---------- Build OpenSSL (static only) ----------
+      - name: Build OpenSSL (static)
+        shell: bash
         run: |
-          find . -type f \( -name 'VERSION' -o -name 'configure.ac' -o -name 'configure' -o -name 'sqlite3.h' -o -name 'Makefile.am' -o -name 'Makefile.in' \) -exec sed -i 's/\r$//' {} +
+          cd deps
+          git clone --depth=1 --branch=openssl-${OPENSSL_VERSION} https://github.com/openssl/openssl.git
+          cd openssl
 
-      - name: Regenerate configure
-        shell: msys2 {0}
-        working-directory: deps/sqlcipher
-        run: |
-          set -e
-          autoreconf -fiv
+          if [[ "${{ matrix.host }}" == *darwin* ]]; then
+            TARGET="${{ matrix.arch == 'arm64' && 'darwin64-arm64-cc' || 'darwin64-x86_64-cc' }}"
+          elif [[ "${{ matrix.host }}" == *mingw* ]]; then
+            TARGET="mingw64"
+          else
+            TARGET="${{ matrix.host }}"
+          fi
 
-      - name: Configure & Build SQLCipher (static)
-        shell: msys2 {0}
+          ./Configure $TARGET no-shared no-tests --prefix="$PREFIX/openssl"
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          make install_sw
+
+          echo "PKG_CONFIG_PATH=$PREFIX/openssl/lib/pkgconfig" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I$PREFIX/openssl/include" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$PREFIX/openssl/lib" >> $GITHUB_ENV
+
+      # ---------- Build SQLCipher ----------
+      - name: Build SQLCipher
+        shell: bash
         working-directory: deps/sqlcipher
-        env:
-          PREFIX: ${{ env.PREFIX }}
-          HOST: ${{ env.HOST }}
         run: |
-          set -e
-          export CONFIG_SITE=/dev/null
-          MINGW_PREFIX="/mingw${{ matrix.arch == 'x64' && '64' || '32' }}"
-          export PATH="${MINGW_PREFIX}/bin:$PATH"
-          export CC=${MINGW_PREFIX}/bin/${HOST}-gcc
-          export AR=${MINGW_PREFIX}/bin/${HOST}-gcc-ar
-          export RANLIB=${MINGW_PREFIX}/bin/${HOST}-gcc-ranlib
-          export STRIP=${MINGW_PREFIX}/bin/${HOST}-strip
-          PKG_CONFIG_PATH="${MINGW_PREFIX}/lib/pkgconfig"
-          TCL_OPT="--disable-tcl"
-          cfg_opts=(
-            --host="${HOST}"
-            --prefix="${PREFIX}"
-            --enable-tempstore=yes
-            --enable-static=yes
-            --disable-shared
-            --with-crypto-lib=openssl
-            $TCL_OPT
-          )
-          ./configure "${cfg_opts[@]}" \
+          if [[ "${{ matrix.host }}" == "aarch64-linux-gnu" ]]; then
+            export CC=aarch64-linux-gnu-gcc
+            export AR=aarch64-linux-gnu-ar
+            export RANLIB=aarch64-linux-gnu-ranlib
+            export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig
+          fi
+
+          if [[ "${{ matrix.os }}" == windows* ]]; then
+            export LIBS="$(pkg-config --static --libs openssl) -lws2_32 -lcrypt32"
+            TCL_OPT="--disable-tcl"
+          else
+            export LIBS="$(pkg-config --static --libs openssl)"
+            TCL_OPT=""
+          fi
+
+          ./configure \
+            --host="${{ matrix.host }}" \
+            --prefix="$PREFIX" \
+            --enable-static=yes \
+            --disable-shared \
+            --enable-tempstore=yes \
+            --with-crypto-lib=openssl \
+            $TCL_OPT \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
             CPPFLAGS="$CPPFLAGS" \
-            LDFLAGS="$LDFLAGS" \
-            LIBS="$(PKG_CONFIG_PATH=$PKG_CONFIG_PATH pkg-config --libs openssl)"
-          make -j$(nproc || 2)
+            LDFLAGS="$LDFLAGS"
+
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           make install
-          tar czf "$PREFIX/sqlcipher-windows-${{ matrix.arch }}.tar.gz" -C "$PREFIX" .
-      - name: Upload artifact
+
+      # ---------- Verify ----------
+      - name: Verify no dynamic OpenSSL
+        shell: bash
+        run: |
+          nm "$PREFIX/lib/libsqlcipher.a" | grep -i ssl || echo "OK: no dynamic ssl symbols"
+
+      # ---------- Package ----------
+      - name: Package
+        shell: bash
+        run: |
+          tar czf sqlcipher-${{ matrix.os }}-${{ matrix.arch }}.tar.gz -C "$PREFIX" .
+          mkdir -p artifacts
+          mv sqlcipher-${{ matrix.os }}-${{ matrix.arch }}.tar.gz artifacts/
+
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: sqlcipher-windows-${{ matrix.arch }}
-          path: out/windows-${{ matrix.arch }}/sqlcipher-windows-${{ matrix.arch }}.tar.gz
-
-  # ========== Release (attach all artifacts) ==========
-  release:
-    needs: [linux, macos, windows]
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: sqlcipher-${{ matrix.os }}-${{ matrix.arch }}
+          path: artifacts/sqlcipher-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
