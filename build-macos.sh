@@ -25,6 +25,7 @@ cd "$SRC_DIR"
 
 # Detect or install OpenSSL
 OPENSSL_INSTALLED=false
+OPENSSL_PATH=""
 if [ -d "/opt/homebrew/opt/openssl@3" ]; then
     # Apple Silicon
     OPENSSL_PATH="/opt/homebrew/opt/openssl@3"
@@ -39,15 +40,24 @@ elif [ -d "/opt/homebrew/opt/openssl@1.1" ]; then
 elif [ -d "/usr/local/opt/openssl@1.1" ]; then
     OPENSSL_PATH="/usr/local/opt/openssl@1.1"
     OPENSSL_INSTALLED=true
+elif [ -d "/usr/local/opt/openssl" ]; then
+    # Fallback for default openssl install
+    OPENSSL_PATH="/usr/local/opt/openssl"
+    OPENSSL_INSTALLED=true
 fi
 
 if [ "$OPENSSL_INSTALLED" = false ]; then
     echo "OpenSSL not found, installing via brew..."
     brew update
     brew install openssl
-    # Assume installed to /usr/local/opt/openssl (adjust if needed)
+    # After install, check common paths
     if [ -d "/usr/local/opt/openssl" ]; then
         OPENSSL_PATH="/usr/local/opt/openssl"
+    elif [ -d "/opt/homebrew/opt/openssl" ]; then
+        OPENSSL_PATH="/opt/homebrew/opt/openssl"
+    else
+        echo "Failed to find OpenSSL after install, exiting."
+        exit 1
     fi
 fi
 
@@ -65,6 +75,9 @@ fi
 if [ "$ARCH" = "arm64" ]; then
     export CFLAGS="$CFLAGS -target arm64-apple-macos12"  # Updated to macOS 12 for better compatibility
     export LDFLAGS="$LDFLAGS -target arm64-apple-macos12"
+elif [ "$ARCH" = "x86_64" ]; then
+    export CFLAGS="$CFLAGS -target x86_64-apple-macos12"
+    export LDFLAGS="$LDFLAGS -target x86_64-apple-macos12"
 fi
 
 ./configure \
