@@ -48,7 +48,7 @@ if [ -n "$OPENSSL_PATH" ]; then
     # Check for multiarch directory first (e.g., lib/x86_64-linux-gnu, lib/aarch64-linux-gnu)
     if [ -d "${OPENSSL_PATH}/lib" ]; then
         for dir in "${OPENSSL_PATH}"/lib/*-linux-gnu* "${OPENSSL_PATH}"/lib/*-linux-*; do
-            if [ -d "$dir" ] && [ -f "$dir/libcrypto.so" -o -f "$dir/libcrypto.a" ]; then
+            if [ -d "$dir" ] && ([ -f "$dir/libcrypto.so" ] || [ -f "$dir/libcrypto.a" ]); then
                 LIB_PATH="$dir"
                 break
             fi
@@ -57,7 +57,7 @@ if [ -n "$OPENSSL_PATH" ]; then
     
     # Fall back to lib64 if it exists and we haven't found a better match
     if [ "$LIB_PATH" = "${OPENSSL_PATH}/lib" ] && [ -d "${OPENSSL_PATH}/lib64" ]; then
-        if [ -f "${OPENSSL_PATH}/lib64/libcrypto.so" -o -f "${OPENSSL_PATH}/lib64/libcrypto.a" ]; then
+        if [ -f "${OPENSSL_PATH}/lib64/libcrypto.so" ] || [ -f "${OPENSSL_PATH}/lib64/libcrypto.a" ]; then
             LIB_PATH="${OPENSSL_PATH}/lib64"
         fi
     fi
