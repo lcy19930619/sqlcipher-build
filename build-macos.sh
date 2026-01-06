@@ -47,16 +47,17 @@ elif [ -d "/usr/local/opt/openssl" ]; then
 fi
 
 if [ "$OPENSSL_INSTALLED" = false ]; then
-    echo "OpenSSL not found, installing via brew..."
+    echo "OpenSSL not found, installing openssl@3 via brew..."
     brew update
-    brew install openssl
-    # After install, check common paths
-    if [ -d "/usr/local/opt/openssl" ]; then
-        OPENSSL_PATH="/usr/local/opt/openssl"
-    elif [ -d "/opt/homebrew/opt/openssl" ]; then
-        OPENSSL_PATH="/opt/homebrew/opt/openssl"
+    brew install openssl@3
+    # After install, set path based on arch
+    if [ "$ARCH" = "arm64" ]; then
+        OPENSSL_PATH="/opt/homebrew/opt/openssl@3"
     else
-        echo "Failed to find OpenSSL after install, exiting."
+        OPENSSL_PATH="/usr/local/opt/openssl@3"
+    fi
+    if [ ! -d "$OPENSSL_PATH" ]; then
+        echo "Failed to find OpenSSL after install at $OPENSSL_PATH, exiting."
         exit 1
     fi
 fi
