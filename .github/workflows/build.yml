@@ -40,11 +40,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---------- Linux deps ----------
-      - name: Install deps (Linux)
+      # ---------- Linux deps (fix arm64 sources 404) ----------
+      - name: Fix apt sources and install deps (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo dpkg --add-architecture arm64
+          sudo tee /etc/apt/sources.list >/dev/null <<'EOF'
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
+          deb [arch=amd64] http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
+          EOF
           sudo apt-get update
           sudo apt-get install -y \
             build-essential pkg-config tcl git \
