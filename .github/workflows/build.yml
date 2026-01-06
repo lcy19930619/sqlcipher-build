@@ -210,10 +210,13 @@ jobs:
         run: |
           set -e
           export CONFIG_SITE=/dev/null
+          MINGW_PREFIX="/mingw${{ matrix.arch == 'x64' && '64' || '32' }}"
+          export PATH="${MINGW_PREFIX}/bin:$PATH"
           export CC=${HOST}-gcc
           export AR=${HOST}-ar
           export RANLIB=${HOST}-ranlib
-          PKG_CONFIG_PATH="/mingw${{ matrix.arch == 'x64' && '64' || '' }}/lib/pkgconfig"
+          export STRIP=${HOST}-strip
+          PKG_CONFIG_PATH="${MINGW_PREFIX}/lib/pkgconfig"
           TCL_OPT=""
           cfg_opts=(
             --host="${HOST}"
