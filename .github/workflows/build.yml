@@ -169,7 +169,7 @@ jobs:
             --enable-tempstore=yes \
             --enable-static=yes \
             --disable-shared \
-            --disable-tcl \        # <<< 关键：禁用 tcl 扩展，避免 tcl 9 的 Tcl_Size API 报错
+            --disable-tcl \        
             --with-crypto-lib=openssl \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
             CPPFLAGS="$CPPFLAGS" \
