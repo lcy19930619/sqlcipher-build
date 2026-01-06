@@ -24,7 +24,7 @@ jobs:
             host: x86_64-apple-darwin
           - os: macos-14
             arch: arm64
-            host: aarch64-apple-darwin   # 修正：使用 aarch64，避免 arm64-apple-* 被 config.sub 拒绝
+            host: aarch64-apple-darwin   # use aarch64 to satisfy config.sub
           # Windows (MSYS2 mingw)
           - os: windows-latest
             arch: x64
@@ -68,7 +68,11 @@ jobs:
         run: |
           brew update
           brew install openssl@3 tcl-tk pkg-config
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+          echo "OPENSSL_PREFIX=$OPENSSL_PREFIX" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$OPENSSL_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I$OPENSSL_PREFIX/include $CPPFLAGS" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$OPENSSL_PREFIX/lib $LDFLAGS" >> $GITHUB_ENV
 
       # ---------- Windows deps (MSYS2 + mingw) ----------
       - name: Set up MSYS2
@@ -125,6 +129,8 @@ jobs:
             make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
             make install_sw
             echo "PKG_CONFIG_PATH=${PREFIX}/openssl/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+            echo "CPPFLAGS=-I${PREFIX}/openssl/include $CPPFLAGS" >> $GITHUB_ENV
+            echo "LDFLAGS=-L${PREFIX}/openssl/lib $LDFLAGS" >> $GITHUB_ENV
           else
             echo "System OpenSSL detected."
           fi
@@ -140,6 +146,10 @@ jobs:
         run: |
           if [[ "$OSTYPE" == darwin* ]]; then
             BUILD_TRIPLE="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
+            OPENSSL_PREFIX="${OPENSSL_PREFIX:-$(brew --prefix openssl@3)}"
+            export PKG_CONFIG_PATH="$OPENSSL_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
+            export CPPFLAGS="-I$OPENSSL_PREFIX/include $CPPFLAGS"
+            export LDFLAGS="-L$OPENSSL_PREFIX/lib $LDFLAGS"
           else
             BUILD_TRIPLE=$(gcc -dumpmachine)
           fi
@@ -161,6 +171,8 @@ jobs:
             --disable-shared \
             --with-crypto-lib=openssl \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
+            CPPFLAGS="$CPPFLAGS" \
+            LDFLAGS="$LDFLAGS" \
             LIBS="$(PKG_CONFIG_PATH=$PKG_CONFIG_PATH pkg-config --libs openssl)"
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           make install
