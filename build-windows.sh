@@ -1,47 +1,51 @@
-$ErrorActionPreference = "Stop"
+#!/bin/bash
+set -e
 
-$SQLCIPHER_VERSION = "4.5.6"
-$ARCH = $env:ARCH
-if (-not $ARCH) { $ARCH = "x64" }
+SQLCIPHER_VERSION="4.5.6"
+ARCH=${ARCH:-x64}
+BUILD_DIR="build/windows-${ARCH}"
+SRC_DIR="sqlcipher-src"
 
-$BUILD_DIR = "build/windows-$ARCH"
-$SRC_DIR = "sqlcipher-src"
-
-Write-Host "Building SQLCipher $SQLCIPHER_VERSION for Windows $ARCH"
+echo "Building SQLCipher ${SQLCIPHER_VERSION} for Windows ${ARCH}"
 
 # Download SQLCipher source
-if (-not (Test-Path $SRC_DIR)) {
-    Write-Host "Downloading SQLCipher source..."
-    $url = "https://github.com/sqlcipher/sqlcipher/archive/v$SQLCIPHER_VERSION.tar.gz"
-    Invoke-WebRequest -Uri $url -OutFile "sqlcipher.tar.gz"
+if [ ! -d "$SRC_DIR" ]; then
+    echo "Downloading SQLCipher source..."
+    curl -L "https://github.com/sqlcipher/sqlcipher/archive/v${SQLCIPHER_VERSION}.tar.gz" -o sqlcipher.tar.gz
     tar -xzf sqlcipher.tar.gz
-    Move-Item "sqlcipher-$SQLCIPHER_VERSION" $SRC_DIR
-    Remove-Item "sqlcipher.tar.gz"
-}
+    mv "sqlcipher-${SQLCIPHER_VERSION}" "$SRC_DIR"
+    rm sqlcipher.tar.gz
+fi
 
 # Create build directory
-New-Item -ItemType Directory -Force -Path "$BUILD_DIR/lib" | Out-Null
-New-Item -ItemType Directory -Force -Path "$BUILD_DIR/include" | Out-Null
+mkdir -p "${BUILD_DIR}/lib" "${BUILD_DIR}/include"
 
-# Build using MSVC
-Push-Location $SRC_DIR
+# Build
+cd "$SRC_DIR"
 
-$OPENSSL_ROOT = "C:\Program Files\OpenSSL-Win64"
-if ($ARCH -eq "x86") {
-    $OPENSSL_ROOT = "C:\Program Files (x86)\OpenSSL-Win32"
-}
+# Configure for specific architecture
+export CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL"
 
-$CFLAGS = "/DSQLITE_HAS_CODEC /DSQLCIPHER_CRYPTO_OPENSSL /I`"$OPENSSL_ROOT\include`""
-$LDFLAGS = "/LIBPATH:`"$OPENSSL_ROOT\lib`" libcrypto.lib"
+if [ "$ARCH" = "x86" ]; then
+    export CFLAGS="$CFLAGS -m32"
+    export LDFLAGS="-m32"
+fi
 
-# Compile SQLCipher
-cl. exe /c sqlite3.c $CFLAGS
-lib.exe /OUT:. .\$BUILD_DIR\lib\sqlcipher.lib sqlite3.obj
+./configure \
+    --enable-tempstore=yes \
+    --enable-fts5 \
+    --enable-json1 \
+    --disable-shared \
+    --enable-static \
+    --prefix="$(pwd)/../${BUILD_DIR}" \
+    CFLAGS="$CFLAGS" \
+    LDFLAGS="$LDFLAGS"
 
-# Copy headers
-Copy-Item "sqlite3.h" ". .\$BUILD_DIR\include\"
+make clean
+make -j$(nproc)
+make install
 
-Pop-Location
+cd ..
 
-Write-Host "Build completed successfully!"
-Write-Host "Output: $BUILD_DIR"
+echo "Build completed successfully!"
+echo "Output: ${BUILD_DIR}"

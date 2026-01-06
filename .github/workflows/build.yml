@@ -3,47 +3,63 @@ name: Build SQLCipher Multi-Platform
 on:
   push:
     branches: [ main, develop ]
-  pull_request: 
+  pull_request:
     branches: [ main ]
   release:
     types: [created]
   workflow_dispatch:
 
-jobs: 
+jobs:
   build-macos:
     name: Build macOS (${{ matrix.arch }})
     runs-on: macos-latest
-    strategy: 
+    timeout-minutes: 60
+    strategy:
       matrix:
         arch: [x86_64, arm64]
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Install dependencies
         run: |
-          brew install openssl tcl-tk
-      
+          brew install openssl@3 tcl-tk
+
       - name: Build SQLCipher
         run:  |
           export ARCH=${{ matrix.arch }}
+          
+          # Set OpenSSL paths
+          if [ -d "/opt/homebrew/opt/openssl@3" ]; then
+            export OPENSSL_ROOT="/opt/homebrew/opt/openssl@3"
+          elif [ -d "/usr/local/opt/openssl@3" ]; then
+            export OPENSSL_ROOT="/usr/local/opt/openssl@3"
+          fi
+          
+          if [ -n "$OPENSSL_ROOT" ]; then
+            export PKG_CONFIG_PATH="${OPENSSL_ROOT}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+            export LDFLAGS="-L${OPENSSL_ROOT}/lib ${LDFLAGS}"
+            export CPPFLAGS="-I${OPENSSL_ROOT}/include ${CPPFLAGS}"
+          fi
+          
           chmod +x build-macos.sh
-          ./build-macos.sh
-      
+          ./build-macos. sh
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sqlcipher-macos-${{ matrix.arch }}
+          name:  sqlcipher-macos-${{ matrix.arch }}
           path: |
             build/macos-${{ matrix.arch }}/lib/*. a
             build/macos-${{ matrix.arch }}/include/*.h
           retention-days: 30
 
   build-linux:
-    name: Build Linux (${{ matrix. arch }})
+    name: Build Linux (${{ matrix.arch }})
     runs-on: ubuntu-latest
-    strategy: 
+    timeout-minutes: 60
+    strategy:
       matrix:
         include:
           - arch: x86_64
@@ -51,17 +67,17 @@ jobs:
             cflags: "-m64"
           - arch: arm64
             cc: aarch64-linux-gnu-gcc
-            cflags: ""
+            cflags:  ""
           - arch: armv7
             cc: arm-linux-gnueabihf-gcc
             cflags: ""
-    
+
     steps:
       - name: Checkout repository
-        uses:  actions/checkout@v4
-      
+        uses: actions/checkout@v4
+
       - name: Install dependencies
-        run: |
+        run:  |
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev tcl
           if [ "${{ matrix.arch }}" = "arm64" ]; then
@@ -69,7 +85,7 @@ jobs:
           elif [ "${{ matrix.arch }}" = "armv7" ]; then
             sudo apt-get install -y gcc-arm-linux-gnueabihf
           fi
-      
+
       - name: Build SQLCipher
         env:
           ARCH: ${{ matrix.arch }}
@@ -78,68 +94,75 @@ jobs:
         run: |
           chmod +x build-linux.sh
           ./build-linux.sh
-      
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
-        with: 
+        with:
           name: sqlcipher-linux-${{ matrix.arch }}
           path: |
-            build/linux-${{ matrix.arch }}/lib/*.a
-            build/linux-${{ matrix.arch }}/include/*.h
+            build/linux-${{ matrix. arch }}/lib/*.a
+            build/linux-${{ matrix. arch }}/include/*.h
           retention-days: 30
 
   build-windows:
-    name: Build Windows (${{ matrix.arch }})
+    name:  Build Windows (${{ matrix.arch }})
     runs-on: windows-latest
+    timeout-minutes:  60
     strategy:
       matrix:
         include:
           - arch: x64
-            platform: x64
+            msys_arch: x86_64
           - arch: x86
-            platform: Win32
-    
-    steps: 
+            msys_arch: i686
+
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name:  Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup MSYS2
+        uses:  msys2/setup-msys2@v2
         with:
-          arch: ${{ matrix.arch }}
-      
-      - name: Install OpenSSL
-        run: |
-          choco install openssl -y
-      
-      - name:  Build SQLCipher
-        shell: powershell
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-${{ matrix.msys_arch }}-gcc
+            mingw-w64-${{ matrix.msys_arch }}-openssl
+            mingw-w64-${{ matrix.msys_arch }}-tcl
+            make
+            curl
+            tar
+
+      - name: Build SQLCipher
+        shell: msys2 {0}
         env:
           ARCH: ${{ matrix.arch }}
         run: |
-          .\build-windows.ps1
-      
+          chmod +x build-windows.sh
+          ./build-windows.sh
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
-        with: 
+        with:
           name: sqlcipher-windows-${{ matrix.arch }}
           path: |
-            build/windows-${{ matrix.arch }}/lib/*.lib
-            build/windows-${{ matrix.arch }}/include/*.h
+            build/windows-${{ matrix. arch }}/lib/*.a
+            build/windows-${{ matrix. arch }}/include/*.h
           retention-days: 30
 
   create-release-assets:
     name: Create Release Assets
     needs: [build-macos, build-linux, build-windows]
-    runs-on:  ubuntu-latest
+    runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    
+
     steps:
-      - name:  Download all artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-      
+
       - name: Create release packages
         run: |
           cd artifacts
@@ -147,7 +170,7 @@ jobs:
             dirname="${dir%/}"
             tar -czf "${dirname}. tar.gz" -C "$dirname" .
           done
-      
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         with:
