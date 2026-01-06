@@ -1,209 +1,191 @@
-name: Build SQLCipher Multi-Platform
+name: build-sqlcipher
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
-  release:
-    types: [created]
   workflow_dispatch:
+  push:
+    branches: [ main, master ]
 
 jobs:
-  build-macos:
-    name: Build macOS (${{ matrix.arch }})
-    runs-on: macos-latest
-    timeout-minutes: 90
+  build:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, arm64]
+        include:
+          # Linux
+          - os: ubuntu-22.04
+            arch: amd64
+            host: x86_64-linux-gnu
+          - os: ubuntu-22.04
+            arch: arm64
+            host: aarch64-linux-gnu
+          # macOS
+          - os: macos-13
+            arch: amd64
+            host: x86_64-apple-darwin
+          - os: macos-14
+            arch: arm64
+            host: arm64-apple-darwin
+          # Windows (MSYS2 mingw)
+          - os: windows-latest
+            arch: x64
+            msys-env: mingw64
+            host: x86_64-w64-mingw32
+          - os: windows-latest
+            arch: x86
+            msys-env: mingw32
+            host: i686-w64-mingw32
+
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      # ---------- Linux deps ----------
+      - name: Install deps (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config tcl git \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            libssl-dev || true
+
+      # ---------- macOS deps ----------
+      - name: Install deps (macOS)
+        if: startsWith(matrix.os, 'macos')
         run: |
           brew update
-          brew install openssl@3 tcl-tk
+          brew install openssl@3 tcl-tk pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
-      - name: Configure environment
+      # ---------- Windows deps (MSYS2 + mingw) ----------
+      - name: Set up MSYS2
+        if: startsWith(matrix.os, 'windows')
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: ${{ matrix.msys-env }}
+          install: >-
+            git
+            mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-toolchain
+            mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-openssl
+            mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-pkg-config
+            mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-tcl
+
+      - name: Prepare env
+        shell: bash
         run: |
-          # Find OpenSSL installation
-          if [ -d "/opt/homebrew/opt/openssl@3" ]; then
-            echo "OPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3" >> $GITHUB_ENV
-          elif [ -d "/usr/local/opt/openssl@3" ]; then
-            echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl@3" >> $GITHUB_ENV
+          echo "HOST=${{ matrix.host }}" >> $GITHUB_ENV
+          echo "PREFIX=$PWD/out/${{ matrix.os }}-${{ matrix.arch }}" >> $GITHUB_ENV
+          mkdir -p out/${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Fetch SQLCipher
+        shell: bash
+        run: |
+          mkdir -p deps && cd deps
+          if [ ! -d sqlcipher ]; then
+            git clone https://github.com/sqlcipher/sqlcipher.git
+          fi
+          cd sqlcipher
+          git checkout v4.5.6  # 如需版本调整在此改
+
+      # ---------- Bootstrap OpenSSL if missing (Linux/macOS) ----------
+      - name: Bootstrap OpenSSL (Unix)
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        shell: bash
+        env:
+          PREFIX: ${{ env.PREFIX }}
+        run: |
+          set -e
+          # 若 pkg-config 找不到 openssl，构建自带静态 openssl
+          if ! pkg-config --exists openssl; then
+            echo "OpenSSL not found, building from source..."
+            mkdir -p deps && cd deps
+            if [ ! -d openssl-src ]; then
+              git clone --depth=1 --branch=openssl-3.2.1 https://github.com/openssl/openssl.git openssl-src
+            fi
+            cd openssl-src
+            ./Configure no-shared --prefix="${PREFIX}/openssl" $(uname | tr '[:upper:]' '[:lower:]')-$(uname -m)
+            make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+            make install_sw
+            echo "PKG_CONFIG_PATH=${PREFIX}/openssl/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          else
+            echo "System OpenSSL detected."
           fi
 
-      - name:  Verify OpenSSL installation
-        run:  |
-          echo "OpenSSL location: $OPENSSL_ROOT_DIR"
-          ls -la $OPENSSL_ROOT_DIR/lib/ || true
-          ls -la $OPENSSL_ROOT_DIR/include/ || true
-          
-          # Test if crypto library exists
-          if [ -f "$OPENSSL_ROOT_DIR/lib/libcrypto.dylib" ] || [ -f "$OPENSSL_ROOT_DIR/lib/libcrypto.a" ]; then
-            echo "✅ OpenSSL crypto library found"
-          else
-            echo "❌ OpenSSL crypto library NOT found"
+      # ---------- Build on Linux/macOS ----------
+      - name: Configure & Build (Unix)
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        working-directory: deps/sqlcipher
+        env:
+          PREFIX: ${{ env.PREFIX }}
+          HOST: ${{ env.HOST }}
+        shell: bash
+        run: |
+          if [[ "$HOST" == "aarch64-linux-gnu" ]]; then
+            export CC=aarch64-linux-gnu-gcc
+            export AR=aarch64-linux-gnu-ar
+            export RANLIB=aarch64-linux-gnu-ranlib
+          fi
+          ./configure \
+            --host="${HOST}" \
+            --prefix="${PREFIX}" \
+            --enable-tempstore=yes \
+            --enable-static=yes \
+            --disable-shared \
+            --with-crypto-lib=openssl \
+            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
+            LIBS="$(pkg-config --libs openssl)"
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          make install
+
+      # ---------- Bootstrap OpenSSL if missing (Windows MSYS2) ----------
+      - name: Bootstrap OpenSSL (Windows)
+        if: startsWith(matrix.os, 'windows')
+        shell: msys2 {0}
+        env:
+          PREFIX: ${{ env.PREFIX }}
+        run: |
+          set -e
+          if ! pkg-config --exists openssl; then
+            echo "OpenSSL not found in MSYS2 environment. Please ensure mingw openssl package is installed."
             exit 1
           fi
 
-      - name: Build SQLCipher
-        env:
-          ARCH: ${{ matrix.arch }}
-        run: |
-          # Export OpenSSL paths
-          export PKG_CONFIG_PATH="${OPENSSL_ROOT_DIR}/lib/pkgconfig:${PKG_CONFIG_PATH}"
-          export LDFLAGS="-L${OPENSSL_ROOT_DIR}/lib"
-          export CPPFLAGS="-I${OPENSSL_ROOT_DIR}/include"
-          export CFLAGS="-I${OPENSSL_ROOT_DIR}/include"
-          
-          # Show environment for debugging
-          echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
-          echo "LDFLAGS: $LDFLAGS"
-          echo "CPPFLAGS: $CPPFLAGS"
-          
-          chmod +x build-macos.sh
-          ./build-macos.sh
-
-      - name:  Verify build output
-        run: |
-          ls -lah build/macos-${{ matrix.arch }}/lib/ || true
-          ls -lah build/macos-${{ matrix.arch }}/include/ || true
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlcipher-macos-${{ matrix.arch }}
-          path: |
-            build/macos-${{ matrix.arch }}/lib/*.a
-            build/macos-${{ matrix.arch }}/include/*.h
-          retention-days: 30
-
-  build-linux:
-    name: Build Linux (${{ matrix.arch }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86_64
-            cc: gcc
-            cflags:  "-m64"
-          - arch: arm64
-            cc: aarch64-linux-gnu-gcc
-            cflags: ""
-          - arch: armv7
-            cc: arm-linux-gnueabihf-gcc
-            cflags:  ""
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name:  Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev tcl
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-          elif [ "${{ matrix.arch }}" = "armv7" ]; then
-            sudo apt-get install -y gcc-arm-linux-gnueabihf
-          fi
-
-      - name: Build SQLCipher
-        env:
-          ARCH: ${{ matrix.arch }}
-          CC: ${{ matrix.cc }}
-          CFLAGS: ${{ matrix.cflags }}
-        run: |
-          chmod +x build-linux.sh
-          ./build-linux.sh
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlcipher-linux-${{ matrix.arch }}
-          path: |
-            build/linux-${{ matrix.arch }}/lib/*.a
-            build/linux-${{ matrix.arch }}/include/*.h
-          retention-days: 30
-
-  build-windows:
-    name: Build Windows (${{ matrix.arch }})
-    runs-on: windows-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            msys_arch: x86_64
-          - arch: x86
-            msys_arch: i686
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup MSYS2
-        uses:  msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            base-devel
-            mingw-w64-${{ matrix.msys_arch }}-gcc
-            mingw-w64-${{ matrix.msys_arch }}-openssl
-            mingw-w64-${{ matrix.msys_arch }}-tcl
-            make
-            curl
-            tar
-
-      - name: Build SQLCipher
+      # ---------- Build on Windows (MSYS2 mingw) ----------
+      - name: Configure & Build (Windows mingw)
+        if: startsWith(matrix.os, 'windows')
         shell: msys2 {0}
+        working-directory: deps/sqlcipher
         env:
-          ARCH: ${{ matrix.arch }}
+          PREFIX: ${{ env.PREFIX }}
+          HOST: ${{ env.HOST }}
         run: |
-          chmod +x build-windows.sh
-          ./build-windows.sh
+          export CC=${HOST}-gcc
+          export AR=${HOST}-ar
+          export RANLIB=${HOST}-ranlib
+          PKG_CONFIG_PATH="/mingw${{ matrix.arch == 'x64' && '64' || '' }}/lib/pkgconfig"
+          ./configure \
+            --host="${HOST}" \
+            --prefix="${PREFIX}" \
+            --enable-tempstore=yes \
+            --enable-static=yes \
+            --disable-shared \
+            --with-crypto-lib=openssl \
+            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
+            LIBS="$(PKG_CONFIG_PATH=$PKG_CONFIG_PATH pkg-config --libs openssl)"
+          make -j$(nproc || 2)
+          make install
+
+      - name: Package artifacts
+        shell: bash
+        run: |
+          ls -R "${PREFIX}"
+          tar czf sqlcipher-${{ matrix.os }}-${{ matrix.arch }}.tar.gz -C "${PREFIX}" .
+          mkdir -p artifacts
+          mv sqlcipher-${{ matrix.os }}-${{ matrix.arch }}.tar.gz artifacts/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sqlcipher-windows-${{ matrix.arch }}
-          path: |
-            build/windows-${{ matrix.arch }}/lib/*.a
-            build/windows-${{ matrix.arch }}/include/*.h
-          retention-days: 30
-
-  create-release-assets:
-    name: Create Release Assets
-    needs: [build-macos, build-linux, build-windows]
-    runs-on:  ubuntu-latest
-    if: github.event_name == 'release'
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create release packages
-        run: |
-          cd artifacts
-          for dir in */; do
-            dirname="${dir%/}"
-            tar -czf "${dirname}.tar.gz" -C "$dirname" .
-          done
-
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files:  artifacts/*.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: sqlcipher-${{ matrix.os }}-${{ matrix.arch }}
+          path: artifacts/sqlcipher-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
