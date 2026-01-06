@@ -23,6 +23,39 @@ mkdir -p "${BUILD_DIR}/lib" "${BUILD_DIR}/include"
 # Build
 cd "$SRC_DIR"
 
+# Detect or install OpenSSL
+OPENSSL_INSTALLED=false
+if pkg-config --exists openssl; then
+    echo "OpenSSL already available via pkg-config"
+    export CFLAGS="${CFLAGS} $(pkg-config --cflags openssl)"
+    export LDFLAGS="${LDFLAGS} $(pkg-config --libs openssl)"
+    OPENSSL_INSTALLED=true
+elif [ -d "/usr/include/openssl" ] && [ -f "/usr/lib/libcrypto.so" ]; then
+    echo "OpenSSL found in /usr"
+    export CFLAGS="${CFLAGS} -I/usr/include"
+    export LDFLAGS="${LDFLAGS} -L/usr/lib -lcrypto"
+    OPENSSL_INSTALLED=true
+elif [ -d "/usr/local/include/openssl" ] && [ -f "/usr/local/lib/libcrypto.so" ]; then
+    echo "OpenSSL found in /usr/local"
+    export CFLAGS="${CFLAGS} -I/usr/local/include"
+    export LDFLAGS="${LDFLAGS} -L/usr/local/lib -lcrypto"
+    OPENSSL_INSTALLED=true
+fi
+
+if [ "$OPENSSL_INSTALLED" = false ]; then
+    echo "OpenSSL not found, installing libssl-dev..."
+    sudo apt-get update
+    sudo apt-get install -y libssl-dev
+    # Re-check after install
+    if pkg-config --exists openssl; then
+        export CFLAGS="${CFLAGS} $(pkg-config --cflags openssl)"
+        export LDFLAGS="${LDFLAGS} $(pkg-config --libs openssl)"
+    else
+        export CFLAGS="${CFLAGS} -I/usr/include"
+        export LDFLAGS="${LDFLAGS} -L/usr/lib -lcrypto"
+    fi
+fi
+
 # Configure for specific architecture
 export CFLAGS="${CFLAGS} -DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL"
 export CC="${CC:-gcc}"
@@ -43,7 +76,8 @@ fi
     --enable-static \
     --prefix="$(pwd)/../${BUILD_DIR}" \
     CC="$CC" \
-    CFLAGS="$CFLAGS"
+    CFLAGS="$CFLAGS" \
+    LDFLAGS="$LDFLAGS"
 
 make clean
 make -j$(nproc)

@@ -23,12 +23,36 @@ mkdir -p "${BUILD_DIR}/lib" "${BUILD_DIR}/include"
 # Build
 cd "$SRC_DIR"
 
+# Detect or install OpenSSL (assuming MSYS2)
+OPENSSL_INSTALLED=false
+if [ -d "/mingw64/include/openssl" ] && [ -f "/mingw64/lib/libcrypto.dll.a" ]; then
+    echo "OpenSSL found in /mingw64"
+    export CFLAGS="${CFLAGS} -I/mingw64/include"
+    export LDFLAGS="${LDFLAGS} -L/mingw64/lib -lcrypto"
+    OPENSSL_INSTALLED=true
+elif [ -d "/usr/include/openssl" ] && [ -f "/usr/lib/libcrypto.dll.a" ]; then
+    echo "OpenSSL found in /usr"
+    export CFLAGS="${CFLAGS} -I/usr/include"
+    export LDFLAGS="${LDFLAGS} -L/usr/lib -lcrypto"
+    OPENSSL_INSTALLED=true
+fi
+
+if [ "$OPENSSL_INSTALLED" = false ]; then
+    echo "OpenSSL not found, installing via pacman..."
+    pacman -S --noconfirm mingw-w64-x86_64-openssl
+    # Re-check
+    if [ -d "/mingw64/include/openssl" ]; then
+        export CFLAGS="${CFLAGS} -I/mingw64/include"
+        export LDFLAGS="${LDFLAGS} -L/mingw64/lib -lcrypto"
+    fi
+fi
+
 # Configure for specific architecture
-export CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL"
+export CFLAGS="${CFLAGS} -DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL"
 
 if [ "$ARCH" = "x86" ]; then
     export CFLAGS="$CFLAGS -m32"
-    export LDFLAGS="-m32"
+    export LDFLAGS="$LDFLAGS -m32"
 fi
 
 ./configure \

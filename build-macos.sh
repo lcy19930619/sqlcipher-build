@@ -23,18 +23,32 @@ mkdir -p "${BUILD_DIR}/lib" "${BUILD_DIR}/include"
 # Build
 cd "$SRC_DIR"
 
-# Detect OpenSSL installation
-OPENSSL_PATH=""
+# Detect or install OpenSSL
+OPENSSL_INSTALLED=false
 if [ -d "/opt/homebrew/opt/openssl@3" ]; then
     # Apple Silicon
     OPENSSL_PATH="/opt/homebrew/opt/openssl@3"
+    OPENSSL_INSTALLED=true
 elif [ -d "/usr/local/opt/openssl@3" ]; then
     # Intel Mac
     OPENSSL_PATH="/usr/local/opt/openssl@3"
+    OPENSSL_INSTALLED=true
 elif [ -d "/opt/homebrew/opt/openssl@1.1" ]; then
     OPENSSL_PATH="/opt/homebrew/opt/openssl@1.1"
+    OPENSSL_INSTALLED=true
 elif [ -d "/usr/local/opt/openssl@1.1" ]; then
     OPENSSL_PATH="/usr/local/opt/openssl@1.1"
+    OPENSSL_INSTALLED=true
+fi
+
+if [ "$OPENSSL_INSTALLED" = false ]; then
+    echo "OpenSSL not found, installing via brew..."
+    brew update
+    brew install openssl
+    # Assume installed to /usr/local/opt/openssl (adjust if needed)
+    if [ -d "/usr/local/opt/openssl" ]; then
+        OPENSSL_PATH="/usr/local/opt/openssl"
+    fi
 fi
 
 # Configure for specific architecture
