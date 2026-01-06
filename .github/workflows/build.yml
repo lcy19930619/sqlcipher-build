@@ -44,14 +44,14 @@ jobs:
           fi
           
           chmod +x build-macos.sh
-          ./build-macos. sh
+          ./build-macos.sh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name:  sqlcipher-macos-${{ matrix.arch }}
           path: |
-            build/macos-${{ matrix.arch }}/lib/*. a
+            build/macos-${{ matrix.arch }}/lib/*.a
             build/macos-${{ matrix.arch }}/include/*.h
           retention-days: 30
 
@@ -100,8 +100,8 @@ jobs:
         with:
           name: sqlcipher-linux-${{ matrix.arch }}
           path: |
-            build/linux-${{ matrix. arch }}/lib/*.a
-            build/linux-${{ matrix. arch }}/include/*.h
+            build/linux-${{ matrix.arch }}/lib/*.a
+            build/linux-${{ matrix.arch }}/include/*.h
           retention-days: 30
 
   build-windows:
@@ -147,8 +147,8 @@ jobs:
         with:
           name: sqlcipher-windows-${{ matrix.arch }}
           path: |
-            build/windows-${{ matrix. arch }}/lib/*.a
-            build/windows-${{ matrix. arch }}/include/*.h
+            build/windows-${{ matrix.arch }}/lib/*.a
+            build/windows-${{ matrix.arch }}/include/*.h
           retention-days: 30
 
   create-release-assets:
@@ -168,7 +168,7 @@ jobs:
           cd artifacts
           for dir in */; do
             dirname="${dir%/}"
-            tar -czf "${dirname}. tar.gz" -C "$dirname" .
+            tar -czf "${dirname}.tar.gz" -C "$dirname" .
           done
 
       - name: Upload to Release

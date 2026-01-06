@@ -11,10 +11,10 @@ echo "Building SQLCipher ${SQLCIPHER_VERSION} for macOS ${ARCH}"
 # Download SQLCipher source
 if [ ! -d "$SRC_DIR" ]; then
     echo "Downloading SQLCipher source..."
-    curl -L "https://github.com/sqlcipher/sqlcipher/archive/v${SQLCIPHER_VERSION}. tar.gz" -o sqlcipher.tar.gz
-    tar -xzf sqlcipher. tar.gz
+    curl -L "https://github.com/sqlcipher/sqlcipher/archive/v${SQLCIPHER_VERSION}.tar.gz" -o sqlcipher.tar.gz
+    tar -xzf sqlcipher.tar.gz
     mv "sqlcipher-${SQLCIPHER_VERSION}" "$SRC_DIR"
-    rm sqlcipher. tar.gz
+    rm sqlcipher.tar.gz
 fi
 
 # Create build directory
