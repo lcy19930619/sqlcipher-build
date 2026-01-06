@@ -124,8 +124,8 @@ jobs:
         with: 
           name: sqlcipher-windows-${{ matrix.arch }}
           path: |
-            build/windows-${{ env: ARCH }}/lib/*.lib
-            build/windows-${{ env:ARCH }}/include/*. h
+            build/windows-${{ matrix.arch }}/lib/*.lib
+            build/windows-${{ matrix.arch }}/include/*.h
           retention-days: 30
 
   create-release-assets:
