@@ -117,6 +117,10 @@ jobs:
             fi
             cd openssl-src
             BUILD_TRIPLE=$(gcc -dumpmachine)
+            # 若 config.sub 识别问题，可改用 uname 得到的简化三元组
+            if [[ "$OSTYPE" == darwin* ]]; then
+              BUILD_TRIPLE="$(uname -m)-apple-darwin"
+            fi
             ./Configure no-shared --prefix="${PREFIX}/openssl" ${BUILD_TRIPLE}
             make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
             make install_sw
@@ -134,7 +138,12 @@ jobs:
           HOST: ${{ env.HOST }}
         shell: bash
         run: |
-          BUILD_TRIPLE=$(gcc -dumpmachine)
+          if [[ "$OSTYPE" == darwin* ]]; then
+            BUILD_TRIPLE="$(uname -m)-apple-darwin"
+          else
+            BUILD_TRIPLE=$(gcc -dumpmachine)
+          fi
+
           if [[ "$HOST" == "aarch64-linux-gnu" ]]; then
             export CC=aarch64-linux-gnu-gcc
             export CXX=aarch64-linux-gnu-g++
@@ -142,6 +151,7 @@ jobs:
             export RANLIB=aarch64-linux-gnu-ranlib
             export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH"
           fi
+
           ./configure \
             --build="${BUILD_TRIPLE}" \
             --host="${HOST}" \
