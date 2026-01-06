@@ -88,6 +88,7 @@ jobs:
             libtool
             make
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-toolchain
+            mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-binutils
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-openssl
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-pkg-config
             mingw-w64-${{ matrix.arch == 'x64' && 'x86_64' || 'i686' }}-tcl
@@ -168,15 +169,18 @@ jobs:
             export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH"
           fi
 
-          ./configure \
-            --build="${BUILD_TRIPLE}" \
-            --host="${HOST}" \
-            --prefix="${PREFIX}" \
-            --enable-tempstore=yes \
-            --enable-static=yes \
-            --disable-shared \
-            ${TCL_OPT:+$TCL_OPT} \
-            --with-crypto-lib=openssl \
+          cfg_opts=(
+            --build="${BUILD_TRIPLE}"
+            --host="${HOST}"
+            --prefix="${PREFIX}"
+            --enable-tempstore=yes
+            --enable-static=yes
+            --disable-shared
+            --with-crypto-lib=openssl
+          )
+          if [[ -n "$TCL_OPT" ]]; then cfg_opts+=("$TCL_OPT"); fi
+
+          ./configure "${cfg_opts[@]}" \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
             CPPFLAGS="$CPPFLAGS" \
             LDFLAGS="$LDFLAGS" \
@@ -184,7 +188,7 @@ jobs:
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           make install
 
-      # ---------- Windows-specific steps (only Windows modified) ----------
+      # ---------- Windows-specific steps (fixed AR not found) ----------
       - name: Normalize line endings (Windows)
         if: startsWith(matrix.os, 'windows')
         shell: msys2 {0}
@@ -213,8 +217,8 @@ jobs:
           MINGW_PREFIX="/mingw${{ matrix.arch == 'x64' && '64' || '32' }}"
           export PATH="${MINGW_PREFIX}/bin:$PATH"
           export CC=${MINGW_PREFIX}/bin/${HOST}-gcc
-          export AR=${MINGW_PREFIX}/bin/${HOST}-ar
-          export RANLIB=${MINGW_PREFIX}/bin/${HOST}-ranlib
+          export AR=${MINGW_PREFIX}/bin/${HOST}-gcc-ar
+          export RANLIB=${MINGW_PREFIX}/bin/${HOST}-gcc-ranlib
           export STRIP=${MINGW_PREFIX}/bin/${HOST}-strip
           PKG_CONFIG_PATH="${MINGW_PREFIX}/lib/pkgconfig"
           TCL_OPT="--disable-tcl"
