@@ -43,10 +43,23 @@ if [ -n "$OPENSSL_PATH" ]; then
     
     # Determine the correct library path
     LIB_PATH="${OPENSSL_PATH}/lib"
-    if [ -d "${OPENSSL_PATH}/lib/x86_64-linux-gnu" ]; then
-        LIB_PATH="${OPENSSL_PATH}/lib/x86_64-linux-gnu"
-    elif [ -d "${OPENSSL_PATH}/lib64" ]; then
-        LIB_PATH="${OPENSSL_PATH}/lib64"
+    
+    # Handle different library directory names (lib, lib64, lib/<multiarch>, etc.)
+    # Check for multiarch directory first (e.g., lib/x86_64-linux-gnu, lib/aarch64-linux-gnu)
+    if [ -d "${OPENSSL_PATH}/lib" ]; then
+        for dir in "${OPENSSL_PATH}"/lib/*-linux-gnu* "${OPENSSL_PATH}"/lib/*-linux-*; do
+            if [ -d "$dir" ] && [ -f "$dir/libcrypto.so" -o -f "$dir/libcrypto.a" ]; then
+                LIB_PATH="$dir"
+                break
+            fi
+        done
+    fi
+    
+    # Fall back to lib64 if it exists and we haven't found a better match
+    if [ "$LIB_PATH" = "${OPENSSL_PATH}/lib" ] && [ -d "${OPENSSL_PATH}/lib64" ]; then
+        if [ -f "${OPENSSL_PATH}/lib64/libcrypto.so" -o -f "${OPENSSL_PATH}/lib64/libcrypto.a" ]; then
+            LIB_PATH="${OPENSSL_PATH}/lib64"
+        fi
     fi
     
     export LDFLAGS="${LDFLAGS} -L${LIB_PATH} -lcrypto"
@@ -54,8 +67,14 @@ if [ -n "$OPENSSL_PATH" ]; then
     # Set PKG_CONFIG_PATH if pkgconfig exists
     if [ -d "${OPENSSL_PATH}/lib/pkgconfig" ]; then
         export PKG_CONFIG_PATH="${OPENSSL_PATH}/lib/pkgconfig:${PKG_CONFIG_PATH}"
-    elif [ -d "${OPENSSL_PATH}/lib/x86_64-linux-gnu/pkgconfig" ]; then
-        export PKG_CONFIG_PATH="${OPENSSL_PATH}/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH}"
+    else
+        # Check for multiarch pkgconfig directories
+        for dir in "${OPENSSL_PATH}"/lib/*-linux-gnu*/pkgconfig "${OPENSSL_PATH}"/lib/*-linux-*/pkgconfig; do
+            if [ -d "$dir" ]; then
+                export PKG_CONFIG_PATH="${dir}:${PKG_CONFIG_PATH}"
+                break
+            fi
+        done
     fi
 else
     echo "Warning: OpenSSL not found in standard locations, trying system defaults"
