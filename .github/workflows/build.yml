@@ -44,10 +44,13 @@ jobs:
       - name: Install deps (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
+          sudo dpkg --add-architecture arm64
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config tcl git \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libssl-dev || true
+          sudo apt-get install -y \
+            build-essential pkg-config tcl git \
+            crossbuild-essential-arm64 libc6-dev-arm64-cross \
+            libssl-dev libssl-dev:arm64 \
+            qemu-user-static
 
       # ---------- macOS deps ----------
       - name: Install deps (macOS)
@@ -86,9 +89,9 @@ jobs:
             git clone https://github.com/sqlcipher/sqlcipher.git
           fi
           cd sqlcipher
-          git checkout v4.5.6  # 如需版本调整在此改
+          git checkout v4.5.6
 
-      # ---------- Bootstrap OpenSSL if missing (Linux/macOS) ----------
+      # ---------- Bootstrap OpenSSL if missing (Unix) ----------
       - name: Bootstrap OpenSSL (Unix)
         if: ${{ !startsWith(matrix.os, 'windows') }}
         shell: bash
@@ -96,7 +99,6 @@ jobs:
           PREFIX: ${{ env.PREFIX }}
         run: |
           set -e
-          # 若 pkg-config 找不到 openssl，构建自带静态 openssl
           if ! pkg-config --exists openssl; then
             echo "OpenSSL not found, building from source..."
             mkdir -p deps && cd deps
@@ -104,7 +106,8 @@ jobs:
               git clone --depth=1 --branch=openssl-3.2.1 https://github.com/openssl/openssl.git openssl-src
             fi
             cd openssl-src
-            ./Configure no-shared --prefix="${PREFIX}/openssl" $(uname | tr '[:upper:]' '[:lower:]')-$(uname -m)
+            BUILD_TRIPLE=$(gcc -dumpmachine)
+            ./Configure no-shared --prefix="${PREFIX}/openssl" ${BUILD_TRIPLE}
             make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
             make install_sw
             echo "PKG_CONFIG_PATH=${PREFIX}/openssl/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
@@ -112,7 +115,7 @@ jobs:
             echo "System OpenSSL detected."
           fi
 
-      # ---------- Build on Linux/macOS ----------
+      # ---------- Configure & Build on Linux/macOS ----------
       - name: Configure & Build (Unix)
         if: ${{ !startsWith(matrix.os, 'windows') }}
         working-directory: deps/sqlcipher
@@ -121,12 +124,16 @@ jobs:
           HOST: ${{ env.HOST }}
         shell: bash
         run: |
+          BUILD_TRIPLE=$(gcc -dumpmachine)
           if [[ "$HOST" == "aarch64-linux-gnu" ]]; then
             export CC=aarch64-linux-gnu-gcc
+            export CXX=aarch64-linux-gnu-g++
             export AR=aarch64-linux-gnu-ar
             export RANLIB=aarch64-linux-gnu-ranlib
+            export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH"
           fi
           ./configure \
+            --build="${BUILD_TRIPLE}" \
             --host="${HOST}" \
             --prefix="${PREFIX}" \
             --enable-tempstore=yes \
@@ -134,12 +141,12 @@ jobs:
             --disable-shared \
             --with-crypto-lib=openssl \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2" \
-            LIBS="$(pkg-config --libs openssl)"
+            LIBS="$(PKG_CONFIG_PATH=$PKG_CONFIG_PATH pkg-config --libs openssl)"
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           make install
 
-      # ---------- Bootstrap OpenSSL if missing (Windows MSYS2) ----------
-      - name: Bootstrap OpenSSL (Windows)
+      # ---------- Bootstrap OpenSSL check (Windows) ----------
+      - name: Check OpenSSL (Windows)
         if: startsWith(matrix.os, 'windows')
         shell: msys2 {0}
         env:
@@ -147,11 +154,11 @@ jobs:
         run: |
           set -e
           if ! pkg-config --exists openssl; then
-            echo "OpenSSL not found in MSYS2 environment. Please ensure mingw openssl package is installed."
+            echo "OpenSSL not found in MSYS2 environment. Ensure mingw openssl is installed."
             exit 1
           fi
 
-      # ---------- Build on Windows (MSYS2 mingw) ----------
+      # ---------- Configure & Build on Windows (MSYS2 mingw) ----------
       - name: Configure & Build (Windows mingw)
         if: startsWith(matrix.os, 'windows')
         shell: msys2 {0}
